@@ -15,7 +15,8 @@ pub fn Board(comptime N: comptime_int) type {
 
         initial_board: [N][N]u8 = undefined,
         possibilities: [N][N]@Vector(N, bool) = undefined,
-        depth: usize = 0,
+        changes: [N * N]struct { x: usize, y: usize, old_val: u8 } = undefined,
+        change_index: usize = 0,
         tries: u64 = 0,
 
         const Self = @This();
@@ -113,8 +114,133 @@ pub fn Board(comptime N: comptime_int) type {
             return res;
         }
 
-        fn fillCellsWithOnePossibility(self: *Self) SudokuError!void {
-            _ = self; // autofix
+        fn fillCellsWithOnePossibility(self: *Self) !usize {
+            var filled: usize = 0;
+            for (&self.possibilities, 0..) |*row_pos, y| {
+                for (row_pos, 0..) |*cell_pos, x| {
+                    if (self.getCell(x, y) != 0) {
+                        continue;
+                    }
+
+                    switch (std.simd.countTrues(cell_pos.*)) {
+                        0 => {
+                            return SudokuError.UnsolvableBoard;
+                        },
+                        1 => {
+                            self.setCell(x, y, @as(u8, std.simd.firstTrue(cell_pos.*).?) + 1);
+                            filled += 1;
+                        },
+                        else => {},
+                    }
+                }
+            }
+
+            return filled;
+        }
+
+        fn fillValuesWithOneCell(self: *Self) !usize {
+            var filled: usize = 0;
+
+            for (0..N) |y| {
+                n_loop: for (1..N + 1) |n| {
+                    var row_index: ?usize = null;
+                    for (0..N) |x| {
+                        if (self.getCell(x, y) == n) {
+                            row_index = null;
+                            continue :n_loop;
+                        }
+
+                        if (self.possibilities[y][x][n - 1]) {
+                            if (row_index) |_| {
+                                row_index = null;
+                                continue :n_loop;
+                            } else {
+                                row_index = x;
+                            }
+                        }
+                    }
+                    if (row_index) |x1| {
+                        if (self.getCell(x1, y) != n) {
+                            self.setCell(x1, y, @intCast(n));
+                            filled += 1;
+                        }
+                    } else {
+                        return SudokuError.UnsolvableBoard;
+                    }
+                }
+            }
+
+            for (0..N) |x| {
+                n_loop: for (1..N + 1) |n| {
+                    var col_index: ?usize = null;
+                    for (0..N) |y| {
+                        if (self.getCell(x, y) == n) {
+                            col_index = null;
+                            continue :n_loop;
+                        }
+
+                        if (self.possibilities[y][x][n - 1]) {
+                            if (col_index) |_| {
+                                col_index = null;
+                                continue :n_loop;
+                            } else {
+                                col_index = y;
+                            }
+                        }
+                    }
+                    if (col_index) |y1| {
+                        if (self.getCell(x, y1) != n) {
+                            self.setCell(x, y1, @intCast(n));
+                            filled += 1;
+                        }
+                    } else {
+                        return SudokuError.UnsolvableBoard;
+                    }
+                }
+            }
+
+            for (0..N) |outer_index| {
+                const start = .{
+                    .x = (outer_index % SQRT_N) * SQRT_N,
+                    .y = (outer_index / SQRT_N) * SQRT_N,
+                };
+                n_loop: for (1..N + 1) |n| {
+                    var pos: ?struct { x: usize, y: usize } = null;
+                    for (0..N) |inner_index| {
+                        const offset = .{
+                            .x = inner_index % SQRT_N,
+                            .y = inner_index / SQRT_N,
+                        };
+
+                        const x = start.x + offset.x;
+                        const y = start.y + offset.y;
+
+                        if (self.getCell(x, y) == n) {
+                            pos = null;
+                            continue :n_loop;
+                        }
+
+                        if (self.possibilities[y][x][n - 1]) {
+                            if (pos) |_| {
+                                pos = null;
+                                continue :n_loop;
+                            } else {
+                                pos = .{ .x = x, .y = y };
+                            }
+                        }
+                    }
+                    if (pos) |p| {
+                        if (self.getCell(p.x, p.y) != n) {
+                            self.setCell(p.x, p.y, @intCast(n));
+                            filled += 1;
+                        } else {
+                            return SudokuError.UnsolvableBoard;
+                        }
+                    }
+                }
+            }
+
+            return filled;
         }
 
         fn solveCell(self: *Self, x: usize, y: usize) !*Self {
@@ -123,8 +249,9 @@ pub fn Board(comptime N: comptime_int) type {
                 return self;
             }
 
-            try self.fillCellsWithOnePossibility();
             self.print();
+
+            const saved_index = self.change_index;
 
             const next_x, const next_y = if (x < N - 1)
                 .{ x + 1, y }
@@ -135,34 +262,60 @@ pub fn Board(comptime N: comptime_int) type {
                 return self.solveCell(next_x, next_y);
             }
 
+            var filled: usize = 1;
+            while (filled > 0) {
+                filled = try self.fillCellsWithOnePossibility();
+                filled += try self.fillValuesWithOneCell();
+            }
+
             for (1..N + 1) |val| {
-                self.setCell(x, y, @intCast(val));
-                if (self.boardValid(x, y)) {
+                if (self.possibilities[y][x][val - 1]) {
+                    self.setCell(x, y, @intCast(val));
                     if (self.solveCell(next_x, next_y)) |sol| {
                         return sol;
                     } else |_| {
-                        self.setCell(x, y, 0);
+                        self.resetCells(saved_index);
                     }
                 }
             }
-            self.setCell(x, y, 0);
+            self.resetCells(saved_index);
 
             return SudokuError.UnsolvableBoard;
         }
 
-        fn setCell(self: *Self, x: usize, y: usize, value: u8) void {
-            self.cells[y][x] = value;
+        fn resetCells(self: *Self, saved_index: usize) void {
+            while (self.change_index > saved_index) {
+                self.change_index -= 1;
+                const change = self.changes[self.change_index];
+                self.cells[change.y][change.x] = change.old_val;
+                self.updatePossibilities(change.x, change.y);
+            }
         }
 
-        fn getCell(self: Self, x: usize, y: usize) u8 {
+        fn setCell(self: *Self, x: usize, y: usize, value: u8) void {
+            if (self.getCell(x, y) == value) {
+                return;
+            }
+
+            self.changes[self.change_index] = .{
+                .x = x,
+                .y = y,
+                .old_val = self.cells[y][x],
+            };
+            self.change_index += 1;
+            self.cells[y][x] = value;
+            self.updatePossibilities(x, y);
+        }
+
+        inline fn getCell(self: Self, x: usize, y: usize) u8 {
             return self.cells[y][x];
         }
 
-        fn getPossibilities(self: Self, x: usize, y: usize) [N]bool {
+        inline fn getPossibilities(self: Self, x: usize, y: usize) [N]bool {
             return self.possibilities[y][x];
         }
 
-        fn boardValid(self: Self, x: usize, y: usize) bool {
+        inline fn boardValid(self: Self, x: usize, y: usize) bool {
             return self.rowValid(x, y) and
                 self.colValid(x, y) and
                 self.squareValid(x, y);
@@ -224,6 +377,26 @@ pub fn Board(comptime N: comptime_int) type {
             }
 
             return true;
+        }
+
+        fn updatePossibilities(self: *Self, x: usize, y: usize) void {
+            // for (0..N) |y1| {
+            //     for (0..N) |x1| {
+            //         self.calculatePossibilities(x1, y1);
+            //     }
+            // }
+            const square_start = .{
+                .x = (x / SQRT_N) * SQRT_N,
+                .y = (y / SQRT_N) * SQRT_N,
+            };
+
+            for (0..N) |offset| {
+                const sqr_x = square_start.x + offset % SQRT_N;
+                const sqr_y = square_start.y + offset / SQRT_N;
+                self.calculatePossibilities(offset, y);
+                self.calculatePossibilities(x, offset);
+                self.calculatePossibilities(sqr_x, sqr_y);
+            }
         }
 
         fn calculatePossibilities(self: *Self, x: usize, y: usize) void {
@@ -293,6 +466,26 @@ pub fn Board(comptime N: comptime_int) type {
             return board;
         }
     };
+}
+
+test "fill with one possibility test 4x4" {
+    var board = Board(4).init(&[4][4]u8{
+        [4]u8{ 0, 0, 0, 4 },
+        [4]u8{ 0, 0, 0, 0 },
+        [4]u8{ 2, 0, 0, 3 },
+        [4]u8{ 4, 0, 1, 2 },
+    });
+
+    _ = try board.fillCellsWithOnePossibility();
+
+    const expected_board = Board(4).init(&[4][4]u8{
+        [4]u8{ 0, 0, 0, 4 },
+        [4]u8{ 0, 0, 0, 1 },
+        [4]u8{ 2, 1, 4, 3 },
+        [4]u8{ 4, 3, 1, 2 },
+    });
+
+    try testing.expectEqualDeep(expected_board.cells, board.cells);
 }
 
 test "calculatePossibilities test" {
