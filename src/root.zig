@@ -13,14 +13,14 @@ pub fn Board(comptime N: comptime_int) type {
     return struct {
         cells: [N][N]u8,
 
-        var initialBoard: [N][N]u8 = undefined;
-        var rows: [N * N][N]@Vector(N, u8) = undefined;
-        var cols: [N * N][N]@Vector(N, u8) = undefined;
-        var sqrs: [N * N][N]@Vector(N, u8) = undefined;
-        var depth: usize = 0;
+        initial_board: [N][N]u8 = undefined,
+        rows: [N * N][N]@Vector(N, u8) = undefined,
+        cols: [N * N][N]@Vector(N, u8) = undefined,
+        sqrs: [N * N][N]@Vector(N, u8) = undefined,
+        depth: usize = 0,
+        tries: u64 = 0,
 
-        var tries: u64 = 0;
-
+        const Self = @This();
         const INITIAL_POSSIBILITIES: @Vector(N, bool) = @splat(true);
 
         // const CONST_VECS: [N]@Vector(N, u8) = init: {
@@ -50,7 +50,7 @@ pub fn Board(comptime N: comptime_int) type {
         const out = std.io.getStdOut();
         var buf = std.io.bufferedWriter(out.writer());
         var w = buf.writer();
-        pub fn print(self: *Board(N)) void {
+        pub fn print(self: *Self) void {
             if (builtin.is_test) {
                 return;
             }
@@ -65,20 +65,19 @@ pub fn Board(comptime N: comptime_int) type {
 
             self.forcePrint();
 
-            _ = w.print("Tried {} boards\n", .{tries}) catch unreachable;
+            _ = w.print("Tried {} boards\n", .{self.tries}) catch unreachable;
 
             buf.flush() catch unreachable;
         }
 
-        pub fn forcePrint(self: *Board(N)) void {
-            _ = self; // autofix
-            for (rows[depth], 0..) |row, y| {
+        pub fn forcePrint(self: *Self) void {
+            for (self.rows[self.depth], 0..) |row, y| {
                 _ = w.writeByte('|') catch unreachable;
                 for (@as([N]u8, row), 0..) |cell, x| {
                     const sqrType = (x / SQRT_N + y / SQRT_N) % 2;
                     const nextSqrType = ((x + 1) / SQRT_N + y / SQRT_N) % 2;
                     _ = w.write(BG_COLORS[sqrType]) catch unreachable;
-                    _ = w.write(FG_COLORS[@intFromBool(initialBoard[y][x] == 0)]) catch unreachable;
+                    _ = w.write(FG_COLORS[@intFromBool(self.initial_board[y][x] == 0)]) catch unreachable;
                     _ = w.writeByte(' ') catch unreachable;
                     if (cell == 0) {
                         _ = w.write(" ") catch unreachable;
@@ -103,11 +102,11 @@ pub fn Board(comptime N: comptime_int) type {
             lastPrintTime = std.time.milliTimestamp();
         }
 
-        pub fn solve(self: *Board(N)) SudokuError!*Board(N) {
+        pub fn solve(self: *Self) SudokuError!*Self {
             _ = w.write(CLEAR ++ SAVE_CURSOR) catch unreachable;
             const res = try self.solveCell(0, 0);
 
-            for (rows[depth], 0..) |row, y| {
+            for (self.rows[self.depth], 0..) |row, y| {
                 for (@as([N]u8, row), 0..) |cell, x| {
                     self.cells[y][x] = cell;
                 }
@@ -116,7 +115,7 @@ pub fn Board(comptime N: comptime_int) type {
             return res;
         }
 
-        fn fillCellsWithOnePossibility(self: *Board(N)) SudokuError!void {
+        fn fillCellsWithOnePossibility(self: *Self) SudokuError!void {
             var filled: bool = true;
             while (filled) {
                 filled = false;
@@ -129,9 +128,9 @@ pub fn Board(comptime N: comptime_int) type {
 
                         const outer_index = x / SQRT_N + SQRT_N * (y / SQRT_N);
 
-                        const row = rows[depth][y];
-                        const col = cols[depth][x];
-                        const sqr = sqrs[depth][outer_index];
+                        const row = self.rows[self.depth][y];
+                        const col = self.cols[self.depth][x];
+                        const sqr = self.sqrs[self.depth][outer_index];
 
                         for (1..N + 1) |n| {
                             const ns: @Vector(N, u8) = @splat(@intCast(n));
@@ -157,8 +156,8 @@ pub fn Board(comptime N: comptime_int) type {
             }
         }
 
-        fn solveCell(self: *Board(N), x: usize, y: usize) SudokuError!*Board(N) {
-            tries += 1;
+        fn solveCell(self: *Self, x: usize, y: usize) SudokuError!*Self {
+            self.tries += 1;
             if (y > N - 1) {
                 return self;
             }
@@ -192,52 +191,46 @@ pub fn Board(comptime N: comptime_int) type {
             return SudokuError.UnsolvableBoard;
         }
 
-        fn resetDepth(self: *Board(N)) void {
-            _ = self; // autofix
-            rows[depth] = rows[depth - 1];
-            cols[depth] = cols[depth - 1];
-            sqrs[depth] = sqrs[depth - 1];
+        fn resetDepth(self: *Self) void {
+            self.rows[self.depth] = self.rows[self.depth - 1];
+            self.cols[self.depth] = self.cols[self.depth - 1];
+            self.sqrs[self.depth] = self.sqrs[self.depth - 1];
         }
 
-        fn increaseDepth(self: *Board(N)) void {
-            _ = self; // autofix
-            rows[depth + 1] = rows[depth];
-            cols[depth + 1] = cols[depth];
-            sqrs[depth + 1] = sqrs[depth];
-            depth += 1;
+        fn increaseDepth(self: *Self) void {
+            self.rows[self.depth + 1] = self.rows[self.depth];
+            self.cols[self.depth + 1] = self.cols[self.depth];
+            self.sqrs[self.depth + 1] = self.sqrs[self.depth];
+            self.depth += 1;
         }
 
-        fn decreaseDepth(self: *Board(N)) void {
-            _ = self; // autofix
-            depth -= 1;
+        fn decreaseDepth(self: *Self) void {
+            self.depth -= 1;
         }
 
-        fn setCell(self: *Board(N), x: usize, y: usize, value: u8) void {
-            _ = self; // autofix
+        fn setCell(self: *Self, x: usize, y: usize, value: u8) void {
             const outer_index = x / SQRT_N + SQRT_N * (y / SQRT_N);
             const inner_index = x % SQRT_N + SQRT_N * (y % SQRT_N);
 
-            rows[depth][y][x] = value;
-            cols[depth][x][y] = value;
-            sqrs[depth][outer_index][inner_index] = value;
+            self.rows[self.depth][y][x] = value;
+            self.cols[self.depth][x][y] = value;
+            self.sqrs[self.depth][outer_index][inner_index] = value;
         }
 
-        fn getCell(self: *Board(N), x: usize, y: usize) u8 {
-            _ = self; // autofix
-            return rows[depth][y][x];
+        fn getCell(self: Self, x: usize, y: usize) u8 {
+            return self.rows[self.depth][y][x];
         }
 
-        fn boardValid(self: *const Board(N), x: usize, y: usize) bool {
+        fn boardValid(self: Self, x: usize, y: usize) bool {
             return self.rowValid(x, y) and
                 self.colValid(x, y) and
                 self.squareValid(x, y);
         }
 
-        fn rowValid(self: *const Board(N), _: usize, y: usize) bool {
-            _ = self; // autofix
+        fn rowValid(self: Self, _: usize, y: usize) bool {
             var n: u8 = 1;
             while (n <= N) : (n += 1) {
-                if (std.simd.countElementsWithValue(rows[depth][y], n) > 1) {
+                if (std.simd.countElementsWithValue(self.rows[self.depth][y], n) > 1) {
                     return false;
                 }
             }
@@ -245,11 +238,10 @@ pub fn Board(comptime N: comptime_int) type {
             return true;
         }
 
-        fn colValid(self: *const Board(N), x: usize, _: usize) bool {
-            _ = self; // autofix
+        fn colValid(self: Self, x: usize, _: usize) bool {
             var n: u8 = 1;
             while (n <= N) : (n += 1) {
-                if (std.simd.countElementsWithValue(cols[depth][x], n) > 1) {
+                if (std.simd.countElementsWithValue(self.cols[self.depth][x], n) > 1) {
                     return false;
                 }
             }
@@ -257,12 +249,11 @@ pub fn Board(comptime N: comptime_int) type {
             return true;
         }
 
-        fn squareValid(self: *const Board(N), x: usize, y: usize) bool {
-            _ = self; // autofix
+        fn squareValid(self: Self, x: usize, y: usize) bool {
             const outer_index = x / SQRT_N + SQRT_N * (y / SQRT_N);
             var n: u8 = 1;
             while (n <= N) : (n += 1) {
-                if (std.simd.countElementsWithValue(sqrs[depth][outer_index], n) > 1) {
+                if (std.simd.countElementsWithValue(self.sqrs[self.depth][outer_index], n) > 1) {
                     return false;
                 }
             }
@@ -270,95 +261,86 @@ pub fn Board(comptime N: comptime_int) type {
             return true;
         }
 
-        pub fn initBoard(self: *Board(N)) void {
-            initialBoard = self.cells;
-            for (self.cells, 0..) |row, y| {
+        pub fn init(cells: *const [N][N]u8) Self {
+            var board = Self{
+                .cells = cells.*,
+                .initial_board = cells.*,
+            };
+
+            for (cells, 0..) |row, y| {
                 for (row, 0..) |cell, x| {
-                    self.setCell(x, y, cell);
+                    board.setCell(x, y, cell);
                 }
             }
+
+            return board;
         }
     };
 }
 
 test "4x4 solve test" {
-    var board = Board(4){
-        .cells = [4][4]u8{
-            [4]u8{ 0, 0, 0, 4 },
-            [4]u8{ 0, 0, 0, 0 },
-            [4]u8{ 2, 0, 0, 3 },
-            [4]u8{ 4, 0, 1, 2 },
-        },
-    };
-    board.initBoard();
+    var board = Board(4).init(&[4][4]u8{
+        [4]u8{ 0, 0, 0, 4 },
+        [4]u8{ 0, 0, 0, 0 },
+        [4]u8{ 2, 0, 0, 3 },
+        [4]u8{ 4, 0, 1, 2 },
+    });
 
-    var expected_board = Board(4){
-        .cells = [4][4]u8{
-            [4]u8{ 1, 2, 3, 4 },
-            [4]u8{ 3, 4, 2, 1 },
-            [4]u8{ 2, 1, 4, 3 },
-            [4]u8{ 4, 3, 1, 2 },
-        },
-    };
-    expected_board.initBoard();
+    const expected_board = Board(4).init(&[4][4]u8{
+        [4]u8{ 1, 2, 3, 4 },
+        [4]u8{ 3, 4, 2, 1 },
+        [4]u8{ 2, 1, 4, 3 },
+        [4]u8{ 4, 3, 1, 2 },
+    });
 
     _ = try board.solve();
 
-    try std.testing.expectEqualDeep(expected_board, board);
+    try std.testing.expectEqualDeep(expected_board.cells, board.cells);
 }
 
 test "9x9 solve test" {
-    var board = Board(9){
-        .cells = [9][9]u8{
-            [9]u8{ 0, 0, 1, 0, 0, 4, 0, 0, 0 },
-            [9]u8{ 0, 0, 5, 0, 0, 0, 0, 1, 6 },
-            [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
-            [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
-            [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 },
-            [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-            [9]u8{ 6, 0, 7, 1, 0, 0, 0, 5, 0 },
-            [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
-            [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
-        },
-    };
-    board.initBoard();
+    var board = Board(9).init(&[9][9]u8{
+        [9]u8{ 0, 0, 1, 0, 0, 4, 0, 0, 0 },
+        [9]u8{ 0, 0, 5, 0, 0, 0, 0, 1, 6 },
+        [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
+        [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
+        [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 },
+        [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        [9]u8{ 6, 0, 7, 1, 0, 0, 0, 5, 0 },
+        [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
+        [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
+    });
 
-    var expected_board = Board(9){
-        .cells = [9][9]u8{
-            [_]u8{ 9, 6, 1, 7, 5, 4, 2, 3, 8 },
-            [_]u8{ 3, 7, 5, 2, 8, 9, 4, 1, 6 },
-            [_]u8{ 2, 8, 4, 6, 3, 1, 7, 9, 5 },
-            [_]u8{ 8, 5, 2, 9, 1, 7, 3, 6, 4 },
-            [_]u8{ 7, 3, 6, 5, 4, 2, 9, 8, 1 },
-            [_]u8{ 4, 1, 9, 3, 6, 8, 5, 7, 2 },
-            [_]u8{ 6, 4, 7, 1, 2, 3, 8, 5, 9 },
-            [_]u8{ 5, 9, 8, 4, 7, 6, 1, 2, 3 },
-            [_]u8{ 1, 2, 3, 8, 9, 5, 6, 4, 7 },
-        },
-    };
-    expected_board.initBoard();
+    const expected_board = Board(9).init(&[9][9]u8{
+        [_]u8{ 9, 6, 1, 7, 5, 4, 2, 3, 8 },
+        [_]u8{ 3, 7, 5, 2, 8, 9, 4, 1, 6 },
+        [_]u8{ 2, 8, 4, 6, 3, 1, 7, 9, 5 },
+        [_]u8{ 8, 5, 2, 9, 1, 7, 3, 6, 4 },
+        [_]u8{ 7, 3, 6, 5, 4, 2, 9, 8, 1 },
+        [_]u8{ 4, 1, 9, 3, 6, 8, 5, 7, 2 },
+        [_]u8{ 6, 4, 7, 1, 2, 3, 8, 5, 9 },
+        [_]u8{ 5, 9, 8, 4, 7, 6, 1, 2, 3 },
+        [_]u8{ 1, 2, 3, 8, 9, 5, 6, 4, 7 },
+    });
 
     _ = try board.solve();
 
-    try std.testing.expectEqualDeep(expected_board, board);
+    try std.testing.expectEqualDeep(expected_board.cells, board.cells);
 }
 
 test "board valid test" {
-    var board = Board(9){
-        .cells = [9][9]u8{
-            //        v 2      v 3
-            [9]u8{ 0, 0, 1, 0, 0, 4, 0, 0, 0 },
-            [9]u8{ 0, 2, 5, 0, 3, 0, 0, 1, 6 },
-            [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
-            [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
-            [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 },
-            [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-            [9]u8{ 6, 0, 7, 1, 0, 5, 0, 5, 0 }, // <-- 5
-            [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
-            [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
-        },
-    };
-    board.initBoard();
+    var board = Board(9).init(&[9][9]u8{
+        //        v 2      v 3
+        [9]u8{ 0, 0, 1, 0, 0, 4, 0, 0, 0 },
+        [9]u8{ 0, 2, 5, 0, 3, 0, 0, 1, 6 },
+        [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
+        [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
+        [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 },
+        [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        [9]u8{ 6, 0, 7, 1, 0, 5, 0, 5, 0 }, // <-- 5
+        [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
+        [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
+    });
 
     try std.testing.expect(!board.boardValid(0, 0));
     try std.testing.expect(!board.boardValid(4, 0));
@@ -366,20 +348,17 @@ test "board valid test" {
 }
 
 test "row test" {
-    var board = Board(9){
-        .cells = [9][9]u8{
-            [9]u8{ 0, 0, 1, 0, 1, 4, 0, 0, 0 }, // <-- 1
-            [9]u8{ 0, 0, 5, 0, 0, 0, 0, 1, 6 },
-            [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
-            [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
-            [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 },
-            [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-            [9]u8{ 6, 0, 7, 1, 0, 5, 0, 5, 0 }, // <-- 5
-            [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
-            [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
-        },
-    };
-    board.initBoard();
+    var board = Board(9).init(&[9][9]u8{
+        [9]u8{ 0, 0, 1, 0, 1, 4, 0, 0, 0 }, // <-- 1
+        [9]u8{ 0, 0, 5, 0, 0, 0, 0, 1, 6 },
+        [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
+        [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
+        [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 },
+        [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        [9]u8{ 6, 0, 7, 1, 0, 5, 0, 5, 0 }, // <-- 5
+        [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
+        [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
+    });
 
     try std.testing.expect(board.rowValid(4, 1));
     try std.testing.expect(board.rowValid(2, 2));
@@ -411,21 +390,18 @@ test "row test" {
 }
 
 test "col test" {
-    var board = Board(9){
-        .cells = [9][9]u8{
-            [9]u8{ 0, 0, 1, 0, 0, 4, 0, 0, 0 },
-            [9]u8{ 0, 2, 5, 0, 0, 0, 0, 1, 6 },
-            [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
-            [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
-            [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 },
-            [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-            [9]u8{ 6, 0, 7, 1, 0, 0, 9, 5, 0 },
-            [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
-            [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
-            //        ^ 2            ^ 9
-        },
-    };
-    board.initBoard();
+    var board = Board(9).init(&[9][9]u8{
+        [9]u8{ 0, 0, 1, 0, 0, 4, 0, 0, 0 },
+        [9]u8{ 0, 2, 5, 0, 0, 0, 0, 1, 6 },
+        [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
+        [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
+        [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 },
+        [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        [9]u8{ 6, 0, 7, 1, 0, 0, 9, 5, 0 },
+        [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
+        [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
+        //        ^ 2            ^ 9
+    });
 
     try std.testing.expect(board.colValid(0, 1));
     try std.testing.expect(board.colValid(2, 2));
@@ -457,21 +433,18 @@ test "col test" {
 }
 
 test "square test" {
-    var board = Board(9){
-        .cells = [9][9]u8{
-            //        v 5
-            [9]u8{ 0, 0, 1, 0, 0, 4, 0, 0, 0 },
-            [9]u8{ 0, 5, 5, 0, 0, 0, 0, 1, 6 },
-            [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
-            [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
-            [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 }, // <-- 3
-            [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 3 },
-            [9]u8{ 6, 0, 7, 1, 0, 0, 0, 5, 0 },
-            [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
-            [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
-        },
-    };
-    board.initBoard();
+    var board = Board(9).init(&[9][9]u8{
+        //        v 5
+        [9]u8{ 0, 0, 1, 0, 0, 4, 0, 0, 0 },
+        [9]u8{ 0, 5, 5, 0, 0, 0, 0, 1, 6 },
+        [9]u8{ 2, 0, 0, 0, 3, 0, 7, 0, 5 },
+        [9]u8{ 0, 0, 0, 0, 1, 7, 3, 0, 0 },
+        [9]u8{ 0, 3, 0, 0, 0, 0, 9, 8, 0 }, // <-- 3
+        [9]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 3 },
+        [9]u8{ 6, 0, 7, 1, 0, 0, 0, 5, 0 },
+        [9]u8{ 0, 0, 0, 0, 7, 0, 0, 0, 0 },
+        [9]u8{ 0, 2, 0, 8, 0, 0, 6, 0, 0 },
+    });
 
     try std.testing.expect(board.squareValid(0, 3));
     try std.testing.expect(board.squareValid(8, 8));
