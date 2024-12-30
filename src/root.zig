@@ -13,10 +13,13 @@ pub fn Board(comptime N: comptime_int) type {
     return struct {
         cells: [N][N]u8,
 
+        var initialBoard: [N][N]u8 = undefined;
         var rows: [N * N][N]@Vector(N, u8) = undefined;
         var cols: [N * N][N]@Vector(N, u8) = undefined;
         var sqrs: [N * N][N]@Vector(N, u8) = undefined;
         var depth: usize = 0;
+
+        var tries: u64 = 0;
 
         const INITIAL_POSSIBILITIES: @Vector(N, bool) = @splat(true);
 
@@ -30,7 +33,13 @@ pub fn Board(comptime N: comptime_int) type {
         // };
 
         var lastPrintTime: i64 = 0;
-        const CLEAR = "\x1b[2J\x1b[H";
+        const CLEAR = "\x1b[2J\x1b[H\n";
+        const RESET_CURSOR = "\x1b[H";
+        const SAVE_CURSOR = "\x1b[s";
+        const RESTORE_CURSOR = "\x1b[u\x1b[0J";
+        const RESET_COLOR = "\x1b[0m";
+        const BG_COLORS = [2][]const u8{ "\x1b[48;2;24;25;38m", "\x1b[48;2;54;58;79m" };
+        const FG_COLORS = [2][]const u8{ "\x1b[38;2;237;135;150m", "\x1b[38;2;138;173;244m" };
         const CHARSET = switch (N) {
             4 => [_]u8{ '1', '2', '3', '4' },
             9 => [_]u8{ '1', '2', '3', '4', '5', '6', '7', '8', '9' },
@@ -47,28 +56,42 @@ pub fn Board(comptime N: comptime_int) type {
             }
 
             const now = std.time.milliTimestamp();
-            if (now - lastPrintTime < 100) {
+            if (now - lastPrintTime < 500) {
                 return;
             }
             lastPrintTime = now;
 
-            _ = w.write(CLEAR) catch unreachable;
+            _ = w.write(RESTORE_CURSOR) catch unreachable;
 
             self.forcePrint();
+
+            _ = w.print("Tried {} boards\n", .{tries}) catch unreachable;
+
+            buf.flush() catch unreachable;
         }
 
         pub fn forcePrint(self: *Board(N)) void {
             _ = self; // autofix
-            for (rows[depth]) |row| {
-                _ = w.write("|") catch unreachable;
-                for (@as([N]u8, row)) |cell| {
+            for (rows[depth], 0..) |row, y| {
+                _ = w.writeByte('|') catch unreachable;
+                for (@as([N]u8, row), 0..) |cell, x| {
+                    const sqrType = (x / SQRT_N + y / SQRT_N) % 2;
+                    const nextSqrType = ((x + 1) / SQRT_N + y / SQRT_N) % 2;
+                    _ = w.write(BG_COLORS[sqrType]) catch unreachable;
+                    _ = w.write(FG_COLORS[@intFromBool(initialBoard[y][x] == 0)]) catch unreachable;
+                    _ = w.writeByte(' ') catch unreachable;
                     if (cell == 0) {
-                        _ = w.write("   |") catch unreachable;
+                        _ = w.write(" ") catch unreachable;
                     } else {
-                        _ = w.writeByte(' ') catch unreachable;
                         _ = w.writeByte(CHARSET[cell - 1]) catch unreachable;
-                        _ = w.write(" |") catch unreachable;
                     }
+                    _ = w.writeByte(' ') catch unreachable;
+                    _ = w.write(RESET_COLOR) catch unreachable;
+
+                    if (nextSqrType == sqrType) {
+                        _ = w.write(BG_COLORS[sqrType]) catch unreachable;
+                    }
+                    _ = w.writeByte('|') catch unreachable;
                 }
                 _ = w.writeByte('\n') catch unreachable;
             }
@@ -76,10 +99,12 @@ pub fn Board(comptime N: comptime_int) type {
             _ = w.writeByte('\n') catch unreachable;
 
             buf.flush() catch unreachable;
+
+            lastPrintTime = std.time.milliTimestamp();
         }
 
         pub fn solve(self: *Board(N)) SudokuError!*Board(N) {
-            self.fillCellsWithOnePossibility();
+            _ = w.write(CLEAR ++ SAVE_CURSOR) catch unreachable;
             const res = try self.solveCell(0, 0);
 
             for (rows[depth], 0..) |row, y| {
@@ -91,7 +116,7 @@ pub fn Board(comptime N: comptime_int) type {
             return res;
         }
 
-        fn fillCellsWithOnePossibility(self: *Board(N)) void {
+        fn fillCellsWithOnePossibility(self: *Board(N)) SudokuError!void {
             var filled: bool = true;
             while (filled) {
                 filled = false;
@@ -115,10 +140,17 @@ pub fn Board(comptime N: comptime_int) type {
                                 @reduce(.And, sqr != ns);
                         }
 
-                        if (std.simd.countTrues(possibilites[x]) == 1) {
-                            const index: u8 = std.simd.firstTrue(possibilites[x]) orelse unreachable;
-                            self.setCell(x, y, index + 1);
-                            filled = true;
+                        const trues = std.simd.countTrues(possibilites[x]);
+                        switch (trues) {
+                            0 => {
+                                return SudokuError.UnsolvableBoard;
+                            },
+                            1 => {
+                                const index: u8 = std.simd.firstTrue(possibilites[x]) orelse unreachable;
+                                self.setCell(x, y, index + 1);
+                                filled = true;
+                            },
+                            else => {},
                         }
                     }
                 }
@@ -126,9 +158,12 @@ pub fn Board(comptime N: comptime_int) type {
         }
 
         fn solveCell(self: *Board(N), x: usize, y: usize) SudokuError!*Board(N) {
+            tries += 1;
             if (y > N - 1) {
                 return self;
             }
+
+            try self.fillCellsWithOnePossibility();
             self.print();
 
             const next_x, const next_y = if (x < N - 1)
@@ -144,7 +179,6 @@ pub fn Board(comptime N: comptime_int) type {
             for (1..N + 1) |val| {
                 self.setCell(x, y, @intCast(val));
                 if (self.boardValid(x, y)) {
-                    self.fillCellsWithOnePossibility();
                     if (self.solveCell(next_x, next_y)) |sol| {
                         return sol;
                     } else |_| {
@@ -237,6 +271,7 @@ pub fn Board(comptime N: comptime_int) type {
         }
 
         pub fn initBoard(self: *Board(N)) void {
+            initialBoard = self.cells;
             for (self.cells, 0..) |row, y| {
                 for (row, 0..) |cell, x| {
                     self.setCell(x, y, cell);

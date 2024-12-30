@@ -81,10 +81,10 @@ pub fn main() !void {
         },
     };
 
-    var board = boards[1];
+    var board = boards[0];
     board.initBoard();
 
-    board.print();
+    board.forcePrint();
 
     var timer = try std.time.Timer.start();
 
