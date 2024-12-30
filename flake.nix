@@ -10,7 +10,7 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          packages = [ pkgs.zig ];
+          packages = [ pkgs.zig pkgs.zls ];
         };
       });
 }
