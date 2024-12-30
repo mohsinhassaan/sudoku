@@ -43,7 +43,8 @@ pub fn Board(comptime N: comptime_int) type {
             4 => [_]u8{ '1', '2', '3', '4' },
             9 => [_]u8{ '1', '2', '3', '4', '5', '6', '7', '8', '9' },
             16 => [_]u8{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' },
-            25 => [_]u8{ 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y' },
+            25 => [_]u8{ '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P' },
+            // 25 => [_]u8{ 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y' },
             else => unreachable,
         };
         const out = std.io.getStdOut();
@@ -243,29 +244,56 @@ pub fn Board(comptime N: comptime_int) type {
             return filled;
         }
 
-        fn solveCell(self: *Self, x: usize, y: usize) !*Self {
-            self.tries += 1;
-            if (y > N - 1) {
-                return self;
+        fn complete(self: Self) bool {
+            for (self.cells) |row| {
+                for (row) |cell| {
+                    if (cell == 0) {
+                        return false;
+                    }
+                }
             }
 
+            return true;
+        }
+
+        fn solveCell(self: *Self, x: usize, y: usize) !*Self {
+            self.tries += 1;
             self.print();
 
             const saved_index = self.change_index;
-
-            const next_x, const next_y = if (x < N - 1)
-                .{ x + 1, y }
-            else
-                .{ 0, y + 1 };
-
-            if (self.getCell(x, y) != 0) {
-                return self.solveCell(next_x, next_y);
-            }
 
             var filled: usize = 1;
             while (filled > 0) {
                 filled = try self.fillCellsWithOnePossibility();
                 filled += try self.fillValuesWithOneCell();
+            }
+
+            if (self.complete()) {
+                return self;
+            }
+
+            const next_x, const next_y = blk: {
+                var min_x: ?usize = null;
+                var min_y: ?usize = null;
+                var min_possibilities: u8 = N + 1;
+                for (self.possibilities, 0..) |row, i| {
+                    for (row, 0..) |cell, j| {
+                        const poss = std.simd.countTrues(cell);
+                        // std.debug.print("{d}, {d}: {d}\n", .{ j, i, poss });
+                        // self.forcePrint();
+                        if (poss > 1 and poss < min_possibilities) {
+                            min_possibilities = poss;
+                            min_y = i;
+                            min_x = j;
+                        }
+                    }
+                }
+
+                break :blk .{ min_x.?, min_y.? };
+            };
+
+            if (self.getCell(x, y) != 0) {
+                return self.solveCell(next_x, next_y);
             }
 
             for (1..N + 1) |val| {
